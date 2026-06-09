@@ -1,0 +1,27 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <?include $(sys.CURRENTDIR)\Common.wxi?>
+
+  <Fragment>
+    <!--
+      IsoToUsb ships as a WinUI 3 app. Its binaries
+      (PowerToys.IsoToUsb.exe / .dll / .pri) are dropped into the shared
+      WinUI3Apps output folder and harvested automatically by the WinUI3Apps
+      sweep in generateAllFileComponents.ps1 into WinUI3ApplicationsComponentGroup.
+      The .NET 10 and Windows App SDK runtime it depends on is already shipped by
+      PowerToys, so nothing additional is packaged here.
+
+      This component group only carries the module's uninstall marker so the
+      feature can be referenced explicitly from Product.wxs, matching the
+      per-module convention used by Awake/Hosts/etc.
+    -->
+    <ComponentGroup Id="IsoToUsbComponentGroup">
+      <Component Id="RemoveIsoToUsbRegistry" Guid="C3BCE7C6-04E4-4235-9B42-726174A21F36" Directory="INSTALLFOLDER">
+        <RegistryKey Root="$(var.RegistryScope)" Key="Software\Classes\powertoys\components">
+          <RegistryValue Type="string" Name="RemoveIsoToUsbRegistry" Value="" KeyPath="yes" />
+        </RegistryKey>
+      </Component>
+    </ComponentGroup>
+
+  </Fragment>
+</Wix>

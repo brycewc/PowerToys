@@ -468,6 +468,18 @@
       <Platform Solution="*|x64" Project="x64" />
     </Project>
   </Folder>
+  <Folder Name="/modules/IsoToUsb/">
+    <Project Path="src/modules/IsoToUsb/IsoToUsb/IsoToUsb.csproj">
+      <Platform Solution="*|ARM64" Project="ARM64" />
+      <Platform Solution="*|x64" Project="x64" />
+    </Project>
+  </Folder>
+  <Folder Name="/modules/IsoToUsb/Tests/">
+    <Project Path="src/modules/IsoToUsb/IsoToUsb.Tests/IsoToUsb.Tests.csproj">
+      <Platform Solution="*|ARM64" Project="ARM64" />
+      <Platform Solution="*|x64" Project="x64" />
+    </Project>
+  </Folder>
   <Folder Name="/modules/imageresizer/">
     <Project Path="src/modules/imageresizer/dll/ImageResizerExt.vcxproj" Id="0b43679e-edfa-4da0-ad30-f4628b308b1b" />
     <Project Path="src/modules/imageresizer/ImageResizerCLI/ImageResizerCLI.csproj">

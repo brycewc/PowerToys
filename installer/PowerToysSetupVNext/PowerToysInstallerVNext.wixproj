@@ -119,6 +119,7 @@ call powershell.exe -NonInteractive -executionpolicy Unrestricted -File $(MSBuil
     <Compile Include="FileExplorerPreview.wxs" />
     <Compile Include="FileLocksmith.wxs" />
     <Compile Include="Hosts.wxs" />
+    <Compile Include="IsoToUsb.wxs" />
     <Compile Include="ImageResizer.wxs" />
     <Compile Include="LightSwitch.wxs" />
     <Compile Include="KeyboardManager.wxs" />

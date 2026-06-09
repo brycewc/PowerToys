@@ -1,0 +1,596 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="IsoToUsb.MainPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:IsoToUsb"
+    xmlns:viewmodels="using:IsoToUsb.ViewModels"
+    xmlns:services="using:IsoToUsb.Services"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Background="{ThemeResource AppPageBackgroundBrush}">
+
+    <Page.Resources>
+        <!-- Shared template for a single phase-rail node. Used 6 times in the
+             rail's hand-laid 6-row Grid so that each row is the same height
+             (justify-content:space-between in the design). The active state
+             draws a 44px translucent accent disc behind the 30px node — that
+             is the design board's
+             box-shadow:0 0 0 5px color-mix(accent 10%, transparent). -->
+        <DataTemplate x:Key="RailNodeTemplate" x:DataType="viewmodels:PhaseItem">
+            <StackPanel
+                Orientation="Vertical"
+                Spacing="3"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                ToolTipService.ToolTip="{x:Bind Name}">
+                <Grid
+                    Width="30"
+                    Height="30"
+                    HorizontalAlignment="Center">
+                    <Border
+                        Width="30"
+                        Height="30"
+                        CornerRadius="15"
+                        BorderThickness="1"
+                        Background="{x:Bind Status, Mode=OneWay, Converter={StaticResource PhaseStatusToRailBrushConverter}, ConverterParameter=node-background}"
+                        BorderBrush="{x:Bind Status, Mode=OneWay, Converter={StaticResource PhaseStatusToRailBrushConverter}, ConverterParameter=node-border}" />
+                    <FontIcon
+                        FontSize="14"
+                        Glyph="{x:Bind RailGlyph}"
+                        Foreground="{x:Bind Status, Mode=OneWay, Converter={StaticResource PhaseStatusToRailBrushConverter}, ConverterParameter=node-foreground}"
+                        Visibility="{x:Bind IsRunning, Mode=OneWay, Converter={StaticResource InvertedBoolToVisibilityConverter}}" />
+                    <ProgressRing
+                        Width="18"
+                        Height="18"
+                        IsActive="{x:Bind IsRunning, Mode=OneWay}"
+                        Visibility="{x:Bind IsRunning, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}" />
+                </Grid>
+                <TextBlock
+                    Text="{x:Bind ShortName}"
+                    FontSize="10"
+                    FontWeight="SemiBold"
+                    HorizontalAlignment="Center"
+                    TextAlignment="Center"
+                    Foreground="{x:Bind Status, Mode=OneWay, Converter={StaticResource PhaseStatusToRailBrushConverter}, ConverterParameter=label-foreground}" />
+            </StackPanel>
+        </DataTemplate>
+    </Page.Resources>
+
+    <!-- Concept A v2 · Twin floating cards (Setup · Work):
+         Row 0 (*):    two floating cards (Setup on the left, Work on the right).
+                       Elevation/focus shifts by state: IsSetupFocal when idle so
+                       the user looks at inputs; IsWorkFocal during/after a build
+                       so the user looks at the pipeline rail and log.
+                       The Work card unifies the phase rail (left edge) and the
+                       live log (rest) into one surface — they belong together.
+         Row 1 (72 px): bottom action bar — status pill + progress + Refresh/Cancel/
+                        Start, plus a caption row (elevation, current op, version).
+                        The status pill is the single source of truth for "Build
+                        complete"; there is intentionally no result InfoBar inside
+                        the Setup card. -->
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="72" />
+        </Grid.RowDefinitions>
+
+        <!-- ======================== TWIN FLOATING CARDS ======================== -->
+        <Grid Grid.Row="0" Padding="18" ColumnSpacing="18">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="320" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- ====== LEFT · SETUP CARD ====== -->
+            <Grid Grid.Column="0">
+                <!-- Single floating card. Elevation is a neutral ThemeShadow
+                     driven by Translation Z; focal/inactive states differ in
+                     opacity, a subtle accent-tinted border, and the Z-lift
+                     (no colored neon halos — design uses a soft drop shadow
+                     and a 34%-accent border tint, not glow rings). -->
+                <Border
+                    CornerRadius="12"
+                    BorderThickness="1"
+                    Background="{x:Bind ViewModel.IsSetupFocal, Mode=OneWay, Converter={StaticResource BoolToFocalBackgroundConverter}}"
+                    BorderBrush="{x:Bind ViewModel.IsSetupFocal, Mode=OneWay, Converter={StaticResource BoolToFocalBorderBrushConverter}}"
+                    Opacity="{x:Bind ViewModel.IsSetupFocal, Mode=OneWay, Converter={StaticResource BoolToFocalOpacityConverter}}"
+                    Translation="{x:Bind ViewModel.IsSetupFocal, Mode=OneWay, Converter={StaticResource BoolToFocalTranslationConverter}}">
+                    <Border.Shadow>
+                        <ThemeShadow />
+                    </Border.Shadow>
+                <Grid Padding="18" RowSpacing="14">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <!-- Section: Source ISO -->
+                    <StackPanel Grid.Row="0" Spacing="6">
+                        <TextBlock
+                            Text="SOURCE ISO"
+                            FontSize="11"
+                            FontWeight="SemiBold"
+                            CharacterSpacing="60"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <Border
+                            x:Name="DropTarget"
+                            AllowDrop="True"
+                            BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
+                            BorderThickness="1.5"
+                            CornerRadius="8"
+                            Padding="14"
+                            MinHeight="98"
+                            Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                            DragOver="OnDropTargetDragOver"
+                            Drop="OnDropTargetDrop">
+                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="4">
+                                <FontIcon Glyph="&#xE7C3;" FontSize="22" HorizontalAlignment="Center" />
+                                <TextBlock
+                                    HorizontalAlignment="Center"
+                                    FontSize="13"
+                                    FontWeight="SemiBold"
+                                    Text="{x:Bind ViewModel.IsoPath, Mode=OneWay, TargetNullValue='Drop a Windows ISO here'}"
+                                    TextTrimming="CharacterEllipsis"
+                                    TextWrapping="NoWrap" />
+                                <TextBlock
+                                    HorizontalAlignment="Center"
+                                    FontSize="11"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    Text="or use Browse · drop another to replace" />
+                                <Button
+                                    HorizontalAlignment="Center"
+                                    Margin="0,4,0,0"
+                                    Content="Browse..."
+                                    IsEnabled="{x:Bind ViewModel.IsBusy, Mode=OneWay, Converter={StaticResource NotConverter}}"
+                                    Click="OnBrowseClicked" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- Section: Target USB -->
+                    <StackPanel Grid.Row="1" Spacing="6">
+                        <TextBlock
+                            Text="TARGET USB"
+                            FontSize="11"
+                            FontWeight="SemiBold"
+                            CharacterSpacing="60"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <ComboBox
+                            HorizontalAlignment="Stretch"
+                            ItemsSource="{x:Bind ViewModel.Drives, Mode=OneWay}"
+                            SelectedItem="{x:Bind ViewModel.SelectedDrive, Mode=TwoWay}"
+                            IsEnabled="{x:Bind ViewModel.IsBusy, Mode=OneWay, Converter={StaticResource NotConverter}}">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="services:DiskInfo">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <FontIcon Glyph="&#xE88E;" FontSize="14" />
+                                        <TextBlock>
+                                            <Run Text="Disk" />
+                                            <Run Text="{x:Bind Number}" />
+                                            <Run Text="{x:Bind DriveLettersTag}" />
+                                            <Run Text=" — " />
+                                            <Run Text="{x:Bind FriendlyName}" />
+                                            <Run Text=" (" />
+                                            <Run Text="{x:Bind SizeDisplay}" />
+                                            <Run Text=")" />
+                                        </TextBlock>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                    </StackPanel>
+
+                    <!-- Section: defaults reminder -->
+                    <StackPanel Grid.Row="2" Spacing="6">
+                        <TextBlock
+                            Text="DEFAULTS"
+                            FontSize="11"
+                            FontWeight="SemiBold"
+                            CharacterSpacing="60"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <Grid ColumnSpacing="8" RowSpacing="4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Boot mode" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock Grid.Row="0" Grid.Column="1" Text="UEFI" FontSize="12" FontWeight="SemiBold" />
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Partition scheme" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="GPT" FontSize="12" FontWeight="SemiBold" />
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="File system" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock Grid.Row="2" Grid.Column="1" Text="FAT32" FontSize="12" FontWeight="SemiBold" />
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Auto-split install.wim" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock Grid.Row="3" Grid.Column="1" Text="On" FontSize="12" FontWeight="SemiBold" />
+                        </Grid>
+                    </StackPanel>
+
+                    <!-- Spacer row pushes the footer badge to the bottom -->
+                    <Border Grid.Row="3" />
+
+                    <!-- Setup footer badge — replaces the old result InfoBar.
+                         Tracks SetupFooterText/SetupFooterGlyph; the bottom action
+                         bar's status pill is the canonical "Build complete" channel. -->
+                    <Border
+                        Grid.Row="4"
+                        MinHeight="46"
+                        VerticalAlignment="Bottom"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="6"
+                        Padding="10"
+                        Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <FontIcon
+                                Glyph="{x:Bind ViewModel.SetupFooterGlyph, Mode=OneWay}"
+                                FontSize="14"
+                                VerticalAlignment="Top"
+                                Margin="0,2,0,0"
+                                Foreground="{x:Bind ViewModel.Status, Mode=OneWay, Converter={StaticResource StatusKindToBrushConverter}, ConverterParameter=foreground}" />
+                            <TextBlock
+                                FontSize="12"
+                                TextWrapping="Wrap"
+                                VerticalAlignment="Center"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="{x:Bind ViewModel.SetupFooterText, Mode=OneWay}" />
+                        </StackPanel>
+                    </Border>
+
+                    <!--
+                        Elevation attribution caption. Sits below the footer
+                        badge, always visible, tiny tertiary text. This is
+                        the SOLE static elevation notice now that the bottom
+                        bar's Row 1 has been retired — the live indicator is
+                        the shield glyph inside the status pill on the
+                        action bar.
+                    -->
+                    <StackPanel
+                        Grid.Row="5"
+                        Orientation="Horizontal"
+                        Spacing="6"
+                        Margin="2,2,0,0"
+                        VerticalAlignment="Center">
+                        <FontIcon
+                            Glyph="&#xE730;"
+                            FontSize="11"
+                            VerticalAlignment="Center"
+                            Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                        <TextBlock
+                            FontSize="11"
+                            VerticalAlignment="Center"
+                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                            Text="Work done with elevated worker process" />
+                    </StackPanel>
+                </Grid>
+                </Border>
+            </Grid>
+
+            <!-- ====== RIGHT · WORK CARD (phase rail subcard + log subcard) ====== -->
+            <Grid Grid.Column="1">
+                <Border
+                    CornerRadius="12"
+                    BorderThickness="1"
+                    Background="{x:Bind ViewModel.IsWorkFocal, Mode=OneWay, Converter={StaticResource BoolToFocalBackgroundConverter}}"
+                    BorderBrush="{x:Bind ViewModel.IsWorkFocal, Mode=OneWay, Converter={StaticResource BoolToFocalBorderBrushConverter}}"
+                    Opacity="{x:Bind ViewModel.IsWorkFocal, Mode=OneWay, Converter={StaticResource BoolToFocalOpacityConverter}}"
+                    Translation="{x:Bind ViewModel.IsWorkFocal, Mode=OneWay, Converter={StaticResource BoolToFocalTranslationConverter}}">
+                    <Border.Shadow>
+                        <ThemeShadow />
+                    </Border.Shadow>
+                <Grid Padding="12" ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="80" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Phase rail subcard. A rounded, bordered, subtle-bg
+                         "Pipeline" panel containing 6 evenly-spaced rail nodes
+                         with 5 short connector lines drawn ONLY in the gaps
+                         between consecutive nodes. Earlier versions drew one
+                         tall line behind the nodes — but every WinUI brush
+                         that visually matched the rail card (Card*Secondary,
+                         etc.) is semi-transparent, so the line bled through
+                         the circles. Layout: 11 rows alternating Auto (node)
+                         and * (gap). Gaps grow as the rail stretches; nodes
+                         keep their natural ~62 px height (44 circle + label).
+                         Mirrors the design board's .phase-rail. -->
+                    <Border
+                        Grid.Column="0"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="10"
+                        Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                        Padding="8,16">
+                        <Grid RowSpacing="0">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <ContentControl
+                                Grid.Row="0"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Stretch"
+                                VerticalAlignment="Stretch"
+                                VerticalContentAlignment="Stretch"
+                                Content="{x:Bind ViewModel.Phases[0], Mode=OneWay}"
+                                ContentTemplate="{StaticResource RailNodeTemplate}" />
+                            <Rectangle
+                                Grid.Row="1"
+                                Width="1"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Stretch"
+                                Fill="{ThemeResource CardStrokeColorDefaultBrush}" />
+                            <ContentControl
+                                Grid.Row="2"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Stretch"
+                                VerticalAlignment="Stretch"
+                                VerticalContentAlignment="Stretch"
+                                Content="{x:Bind ViewModel.Phases[1], Mode=OneWay}"
+                                ContentTemplate="{StaticResource RailNodeTemplate}" />
+                            <Rectangle
+                                Grid.Row="3"
+                                Width="1"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Stretch"
+                                Fill="{ThemeResource CardStrokeColorDefaultBrush}" />
+                            <ContentControl
+                                Grid.Row="4"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Stretch"
+                                VerticalAlignment="Stretch"
+                                VerticalContentAlignment="Stretch"
+                                Content="{x:Bind ViewModel.Phases[2], Mode=OneWay}"
+                                ContentTemplate="{StaticResource RailNodeTemplate}" />
+                            <Rectangle
+                                Grid.Row="5"
+                                Width="1"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Stretch"
+                                Fill="{ThemeResource CardStrokeColorDefaultBrush}" />
+                            <ContentControl
+                                Grid.Row="6"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Stretch"
+                                VerticalAlignment="Stretch"
+                                VerticalContentAlignment="Stretch"
+                                Content="{x:Bind ViewModel.Phases[3], Mode=OneWay}"
+                                ContentTemplate="{StaticResource RailNodeTemplate}" />
+                            <Rectangle
+                                Grid.Row="7"
+                                Width="1"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Stretch"
+                                Fill="{ThemeResource CardStrokeColorDefaultBrush}" />
+                            <ContentControl
+                                Grid.Row="8"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Stretch"
+                                VerticalAlignment="Stretch"
+                                VerticalContentAlignment="Stretch"
+                                Content="{x:Bind ViewModel.Phases[4], Mode=OneWay}"
+                                ContentTemplate="{StaticResource RailNodeTemplate}" />
+                            <Rectangle
+                                Grid.Row="9"
+                                Width="1"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Stretch"
+                                Fill="{ThemeResource CardStrokeColorDefaultBrush}" />
+                            <ContentControl
+                                Grid.Row="10"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Stretch"
+                                VerticalAlignment="Stretch"
+                                VerticalContentAlignment="Stretch"
+                                Content="{x:Bind ViewModel.Phases[5], Mode=OneWay}"
+                                ContentTemplate="{StaticResource RailNodeTemplate}" />
+                        </Grid>
+                    </Border>
+
+                    <!-- Log subcard: rounded, bordered, with its own header strip. -->
+                    <Border
+                        Grid.Column="1"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="10"
+                        Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="38" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+
+                            <!-- Log header strip -->
+                            <Border
+                                Grid.Row="0"
+                                Padding="16,0"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="0,0,0,1"
+                                CornerRadius="10,10,0,0"
+                                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                                <StackPanel
+                                    Orientation="Horizontal"
+                                    Spacing="10"
+                                    VerticalAlignment="Center">
+                                    <FontIcon
+                                        Glyph="&#xE756;"
+                                        FontSize="13"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <TextBlock
+                                        Text="Log"
+                                        FontSize="12"
+                                        FontWeight="SemiBold"
+                                        VerticalAlignment="Center" />
+                                    <TextBlock
+                                        Text="·"
+                                        FontSize="12"
+                                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                        VerticalAlignment="Center" />
+                                    <TextBlock
+                                        Text="{x:Bind ViewModel.StatusPillText, Mode=OneWay}"
+                                        FontSize="12"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Log content: monospaced, syntax-coloured, auto-scrolling -->
+                            <ScrollViewer
+                                Grid.Row="1"
+                                x:Name="LogScrollViewer"
+                                Padding="16,12"
+                                VerticalScrollMode="Auto"
+                                VerticalScrollBarVisibility="Auto"
+                                HorizontalScrollMode="Disabled"
+                                HorizontalScrollBarVisibility="Disabled">
+                                <ItemsControl ItemsSource="{x:Bind ViewModel.LogLines, Mode=OneWay}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="viewmodels:LogLine">
+                                            <TextBlock
+                                                FontFamily="Consolas"
+                                                FontSize="12"
+                                                LineHeight="18"
+                                                TextWrapping="Wrap"
+                                                Foreground="{ThemeResource TextFillColorPrimaryBrush}">
+                                                <Run
+                                                    Text="{x:Bind Timestamp}"
+                                                    Foreground="{ThemeResource LogTimestampBrush}" />
+                                                <Run
+                                                    Text="{x:Bind Keyword}"
+                                                    FontWeight="SemiBold"
+                                                    Foreground="{x:Bind Severity, Converter={StaticResource LogSeverityToBrushConverter}}" />
+                                                <Run Text="{x:Bind Rest}" />
+                                            </TextBlock>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </Grid>
+                    </Border>
+                </Grid>
+                </Border>
+            </Grid>
+        </Grid>
+
+        <!-- ======================== BOTTOM ACTION BAR ======================== -->
+        <!--
+            Single-row action bar. The status pill carries the live state
+            (with a shield glyph inside it when IsBusy), the ProgressBar
+            shows percent progress, and the three buttons sit on the right.
+            The old Row 1 caption strip ("asInvoker · ..." / "IsoToUsb · MIT")
+            was retired: elevation is now indicated by the pill's shield,
+            and the attribution caption lives at the bottom of the Setup
+            card instead. Net effect: half the bottom-bar height.
+        -->
+        <Border
+            Grid.Row="1"
+            BorderBrush="{ThemeResource ControlStrongStrokeColorDefaultBrush}"
+            BorderThickness="0,1,0,0"
+            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+            <Grid Margin="18,8" ColumnSpacing="12" VerticalAlignment="Center">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <!-- Status pill: canonical "Build complete" channel.
+                     The shield glyph appears inline ONLY when the
+                     elevated worker is running — this is the sole
+                     elevation indicator in the action bar (Row 1's
+                     caption strip has been retired). Geometry of the
+                     pill is unchanged so nothing reflows when the
+                     glyph appears/disappears. -->
+                <Border
+                    Grid.Column="0"
+                    VerticalAlignment="Center"
+                    Padding="10,3"
+                    CornerRadius="10"
+                    BorderThickness="1"
+                    Background="{x:Bind ViewModel.Status, Mode=OneWay, Converter={StaticResource StatusKindToBrushConverter}, ConverterParameter=background}"
+                    BorderBrush="{x:Bind ViewModel.Status, Mode=OneWay, Converter={StaticResource StatusKindToBrushConverter}, ConverterParameter=border}">
+                    <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                        <FontIcon
+                            Glyph="&#xE730;"
+                            FontSize="11"
+                            VerticalAlignment="Center"
+                            Foreground="{x:Bind ViewModel.Status, Mode=OneWay, Converter={StaticResource StatusKindToBrushConverter}, ConverterParameter=foreground}"
+                            Visibility="{x:Bind ViewModel.IsBusy, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"
+                            AutomationProperties.Name="Elevated worker active" />
+                        <TextBlock
+                            FontSize="12"
+                            FontWeight="SemiBold"
+                            VerticalAlignment="Center"
+                            Text="{x:Bind ViewModel.StatusPillText, Mode=OneWay}"
+                            Foreground="{x:Bind ViewModel.Status, Mode=OneWay, Converter={StaticResource StatusKindToBrushConverter}, ConverterParameter=foreground}" />
+                    </StackPanel>
+                </Border>
+
+                <ProgressBar
+                    Grid.Column="1"
+                    Height="10"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Center"
+                    Margin="14,0"
+                    Minimum="0"
+                    Maximum="100"
+                    Value="{x:Bind ViewModel.ProgressPercent, Mode=OneWay}"
+                    ShowError="False"
+                    IsIndeterminate="False" />
+
+                <StackPanel
+                    Grid.Column="2"
+                    Orientation="Horizontal"
+                    Spacing="8"
+                    VerticalAlignment="Center">
+                    <Button
+                        ToolTipService.ToolTip="Refresh drive list"
+                        IsEnabled="{x:Bind ViewModel.IsBusy, Mode=OneWay, Converter={StaticResource NotConverter}}"
+                        Command="{x:Bind ViewModel.RefreshDrivesCommand}">
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                            <FontIcon Glyph="&#xE72C;" FontSize="13" VerticalAlignment="Center" />
+                            <TextBlock Text="Refresh" FontSize="13" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button
+                        Command="{x:Bind ViewModel.CancelCommand}"
+                        IsEnabled="{x:Bind ViewModel.IsBusy, Mode=OneWay}">
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                            <FontIcon Glyph="&#xE894;" FontSize="13" VerticalAlignment="Center" />
+                            <TextBlock Text="Cancel" FontSize="13" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button
+                        Style="{StaticResource AccentButtonStyle}"
+                        Command="{x:Bind ViewModel.StartCommand}"
+                        IsEnabled="{x:Bind ViewModel.CanStart, Mode=OneWay}">
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                            <FontIcon Glyph="&#xE768;" FontSize="13" VerticalAlignment="Center" />
+                            <TextBlock Text="Start build" FontSize="13" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Page>
